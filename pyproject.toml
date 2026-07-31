@@ -1,0 +1,22 @@
+[project]
+name = "audit"
+version = "2.0.0"
+description = "Mechanical code-quality checks via AST analysis, plus Claude Code skill for deep LLM-powered audits"
+requires-python = ">=3.11"
+
+[project.scripts]
+audit-lint = "audit.lint:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audit"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
