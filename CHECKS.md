@@ -104,7 +104,16 @@ def handle(request):
 
 ### God functions
 - Functions longer than 50 lines that do more than one conceptual thing
-- Functions with more than 5 parameters (should be a config/options dataclass)
+- Long parameter lists — but decide by **what the callee reads**, not by a count.
+  Split responsibilities first; a long list is usually the symptom. Then: a
+  low-level function reading one to three values of an object should take those
+  values; reading a narrow subset of a larger type, take a Protocol (§19); most
+  of the object, take the object. Group into a dataclass only where the values
+  are genuinely one concept *and* the cluster recurs across several signatures.
+  Never assemble an options object out of whatever is left over.
+  *Not when:* the parameters are independent and only happen to travel together,
+  or the function is one of several interchangeable handlers called from a list,
+  where a uniform signature is the point even if some arguments go unused.
 - Functions that mix I/O and logic (read from DB, transform, write back — should be split)
 
 > **The 50 is conjunctive and this matters.** Length alone is not a finding in a
@@ -126,10 +135,22 @@ def handle(request):
 - State passed through multiple function calls via parameters that could be instance state
 
 ### Over-abstraction (yes, this is also a smell)
-- Single-use abstractions (a class with one subclass, a protocol with one implementor)
+- Single-use abstractions **inside the domain** — a class with one subclass, a
+  protocol with one implementor, where both sides are your own code and no
+  boundary sits between them
 - Pass-through functions that just forward to another function
 - Wrapper classes that add no behaviour
 - "Strategy pattern" with one strategy
+- An abstraction added for a hypothetical future rather than a present coupling
+
+> **Where the single implementor sits decides this, and getting it wrong is the
+> most likely false positive in §3.** One implementor *at an infrastructure
+> boundary* — a Protocol standing between domain logic and a DB, HTTP client,
+> vendor SDK or framework — is the correct shape, not a smell: it is the test
+> seam, and removing it is a downgrade. One implementor *between two of your own
+> domain objects*, with no boundary under it, is the smell. Ask what is on the
+> far side before reporting. Boundary-side abstraction belongs to §19, which
+> owns the direction rules; this bullet owns only the domain-internal case.
 
 ### Registry vs if/elif
 - 3+ branches of `if/elif` that all do the same shape of work with different data
@@ -775,3 +796,142 @@ rule someone disables. Where the count is large, recommend a **ratchet** (fail
 on any increase against a recorded baseline) rather than a threshold. That is
 enforceable on day one, and it stops the bleed, which is what the project
 actually wanted from the rule it never turned on.
+
+---
+
+## 19. Architecture & Coupling (universal)
+
+**Standards:** SOLID (DIP, ISP), A Philosophy of Software Design (Ousterhout —
+deep modules, information hiding), Domain-Driven Design tactical patterns
+(layering, repository, application service), 12-Factor III (config). See
+STANDARDS.md. **Signals in this section come from a survey of ArjanCodes'
+architecture and design videos (2021–2026); the authority for a finding is the
+standard above it, never the survey.**
+
+Every other structural dimension works inside a module: §3 asks whether *this
+function* is doing too much, §10 whether *this name* is honest. This one asks
+where the seams are — which module depends on which, what crosses a boundary,
+and where objects get built.
+
+**Almost every finding here is `authority: external`.** A layering rule the
+project never wrote down is a *proposal to adopt a convention*, and SKILL.md is
+explicit that filing one as a defect is how a codebase acquires rules nobody
+agreed to. Report them as proposals. The exception is a project whose own
+`CLAUDE.md` / `CODE_STYLE.md` declares a layering or dependency rule — then it
+is `authority: project`, quote the line, and a violation is a defect.
+
+### Boundary and layering
+
+**Domain types performing I/O.** A data- or domain-holding class with a method
+that prints, reads stdin, sends mail, opens a socket or writes a file. The same
+object should be able to back a CLI, a web handler and a test unchanged.
+*Not when:* the class is explicitly an adapter, repository or client — I/O is
+its job.
+
+**Framework or vendor types reaching into domain code.** A domain/use-case
+function that takes a request object, ORM session, or third-party SDK type as a
+parameter, or returns one. Detect by import direction, not by eye:
+
+```bash
+# domain modules importing infrastructure — direction should be one-way
+grep -rn "^\s*\(from\|import\)\s\+\(fastapi\|flask\|django\|sqlalchemy\|boto3\|stripe\|requests\|httpx\)" \
+  --include="*.py" src/ | grep -iE "/(domain|model|entities|core)/"
+```
+
+**Handlers that are not thin.** A route/endpoint/CLI command that does more than
+parse input, call one use case, and map the result and errors back out — SQL,
+business rules or multi-step orchestration inline in the handler.
+*Not when:* the project is a deliberate small CRUD app with no service layer,
+and says so.
+
+**One model serving two roles.** A single class used as both the stored record
+and the API request or response shape, or a handler returning a data-access
+object straight into a response. Field duplication across a DB model, an input
+model and a read model is the intended cost, not a DRY violation — flag the
+*merge*, never the duplication.
+*Not when:* an internal tool where the two shapes are genuinely the same and
+expected to change together.
+
+**Impure values read inside logic.** Core logic calling the clock, a random
+source, `input()`, or the environment directly, rather than receiving them.
+This is the cheapest testability win in the catalogue and it is mechanically
+greppable.
+
+**A generic core naming concrete features.** An engine, dispatcher, base client
+or framework module that imports specific handlers, holds per-feature
+validation, or grows `get_user`/`create_user`-shaped methods. The dependency
+should point inward: the core exposes a registration seam, features register
+against it.
+*Not when:* a registration seam would make the active set invisible — a core
+that self-registers by import side effect trades one problem for another, so
+say which you are recommending and why.
+
+**Severity:** `major` where the coupling makes the logic untestable without the
+framework, or where a leak crosses a boundary the project itself declares.
+`minor` for a single leaked touchpoint in an otherwise clean layer. Where the
+boundary is nowhere declared, report as a proposal and rate it `minor`.
+
+### Wiring and dependency direction
+
+**Collaborators constructed in place.** A class or function that instantiates a
+concrete collaborator inside its own body and then uses it. Report the pair —
+the construction site and the use — since the fix is to accept it as a
+parameter.
+*Not when:* the dependency is intrinsic, has no plausible alternative
+implementation, and will never need a test double. A `datetime` formatter is not
+a seam.
+
+**Parameters typed wider than they are used.** A parameter annotated with a
+concrete class where the body calls only one or two of its methods — the
+strongest-recurring signal in the whole survey. The narrow form is a Protocol
+listing exactly the members used.
+*Not when:* the consumer genuinely uses most of the type's surface, or the
+codebase has settled on ABCs and says so. **Do not flag the inverse** — a
+Protocol with a single implementor at an infrastructure boundary is a correct
+test seam, not the over-abstraction smell in §3.
+
+**Construction scattered across modules.** Concrete-type imports and
+instantiation spread through many modules rather than converging on one
+composition root. The root looking busy is the design working, not a finding —
+do not report the root itself as a god function.
+
+**Config read where it is used.** A class or function reading environment
+variables, settings or feature flags from inside its own body, or receiving a
+dependency invisibly through a decorator. Resolve at the root, pass the finished
+value. Cross-reference 12-Factor III; overlaps `ops-misc` config placement, so
+deduplicate in Phase 2.
+
+**Shared state reached implicitly.** A module-level instance or singleton
+fetched inside a function, so the dependency is invisible at the call site.
+*Unresolved in the sources, and worth stating as such:* for SDK-facing shared
+objects, explicit threading versus a module-level instance is a real
+testability-versus-ergonomics trade, with no clean answer. Present both, do not
+declare one wrong.
+
+**Test pain as evidence.** Any unit whose test needs heavy or multi-point
+monkeypatching to isolate it. This is the one check here that reports *observed
+difficulty* rather than a taste judgement, which makes it the most defensible
+finding in the dimension — lead with it where it applies.
+*Not when:* one simple monkeypatch is a reasonable permanent fix, or the code is
+third-party and cannot be changed.
+
+**Severity:** `major` where it blocks testing or the same concrete type is built
+in three or more places. `minor` for a single construction site. A DI container
+proposed for wiring that `main()` could do directly is itself a finding — report
+it under §3 over-abstraction, not here.
+
+### What NOT to report in this dimension
+
+- **Any layering rule the project has not written down, reported as a defect.**
+  It is a proposal. This is the dimension most likely to manufacture rules, and
+  SKILL.md's `authority` split exists mainly for it.
+- **Repository, CQRS, event sourcing or a DI container proposed on principle.**
+  Each needs a concrete present-tense justification: a real second backend, a
+  measured read/write divergence, an audit or replay requirement, config-driven
+  wiring. "It would be more decoupled" is not one.
+- **A monolith, for being a monolith.** Absent a team-ownership or independent-
+  scaling boundary that exists today, it is the correct default.
+- **Structure for its own sake** — a folder per file, a layer with one module,
+  an interface with one implementor and no boundary under it.
+- **Framework-imposed shapes** the project cannot change (Django's app layout,
+  an ORM's declarative base).

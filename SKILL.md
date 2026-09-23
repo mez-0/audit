@@ -102,6 +102,7 @@ The dimensions are:
 15. **error-handling** — Bare except/catch, swallowed errors, missing error context, panic in library code
 16. **security** — Hardcoded secrets, SQL injection, command injection, path traversal, XSS, SSRF. Every finding MUST cite the OWASP Top 10 category AND the CWE number. Reference OWASP ASVS verification level where applicable.
 18. **enforcement** — Rules the project *declares* and does not *enforce*. Every other dimension finds code that breaks a rule; this one finds rules that break nothing. See [CHECKS.md](CHECKS.md) §18. **Run the declared checks — do not read the config and assume it passes.**
+19. **architecture-coupling** — Where the seams are: module dependency direction, framework/vendor types leaking into domain code, handlers that aren't thin, one model serving two roles, collaborators constructed rather than injected, scattered construction, config read where it's used. See [CHECKS.md](CHECKS.md) §19 *Architecture & Coupling*. Works between modules; §3 **abstraction** works inside one. **Nearly every finding here is `authority: external` — a layering rule the project never wrote down is a proposal, not a defect.** Cites SOLID (DIP/ISP), Ousterhout, DDD tactical patterns, 12-Factor III.
 
 ### Offensive tooling dimension (if offensive tooling detected in Phase 0)
 17. **opsec** — String artefacts, API usage patterns, memory hygiene, network OPSEC, build/release hygiene. Cite MITRE ATT&CK technique IDs where relevant. Cross-reference Elastic/Sigma/YARA detection rules if a pattern would trigger known detections.

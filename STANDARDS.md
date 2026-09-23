@@ -307,7 +307,7 @@ naming, and structural dimensions.
 
 ### SOLID Principles
 **URL:** https://en.wikipedia.org/wiki/SOLID
-**Scope:** abstraction, ts-structure
+**Scope:** architecture-coupling, abstraction, ts-structure
 
 - **S** — Single Responsibility. One reason to change.
 - **O** — Open/Closed. Open for extension, closed for modification.
@@ -317,7 +317,7 @@ naming, and structural dimensions.
 
 ### 12-Factor App
 **URL:** https://12factor.net/
-**Scope:** abstraction, error-handling, security
+**Scope:** architecture-coupling, abstraction, error-handling, security
 
 Key factors for audit relevance:
 - **III** — Config in environment, not code (maps to: magic-values, security — hardcoded secrets)
@@ -327,7 +327,7 @@ Key factors for audit relevance:
 
 ### A Philosophy of Software Design (John Ousterhout)
 **URL:** N/A (book)
-**Scope:** abstraction
+**Scope:** architecture-coupling, abstraction
 
 Core vocabulary:
 - **Deep modules** — simple interface, complex implementation (good)
@@ -337,7 +337,7 @@ Core vocabulary:
 
 ### Domain-Driven Design — Tactical Patterns
 **URL:** https://www.domainlanguage.com/ddd/reference/
-**Scope:** abstraction, naming
+**Scope:** architecture-coupling, abstraction, naming
 
 - Entities, Value Objects, Aggregates, Domain Events
 - Ubiquitous Language — names in code should match the domain

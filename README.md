@@ -110,6 +110,7 @@ The linter catches things grep can't reliably find via AST analysis: nesting dep
 | **Naming** | Inconsistent conventions (mixed `snake_case`/`camelCase`), misleading names (`handle_error` that just logs), `utils.py` grab-bags, variables named after implementation instead of meaning. |
 | **Error handling** | Bare `except:`/`catch` with `pass`, swallowed errors, missing error context (`raise ValueError("invalid")` — invalid what?), wrong granularity, `assert` for runtime validation. |
 | **Security** | SQL/command/HTML injection, hardcoded secrets, path traversal, SSRF, missing auth checks, IDOR, weak crypto, `random` for security. Every finding cites OWASP Top 10 + CWE number. |
+| **Architecture & coupling** | Where the seams are, between modules rather than inside one: framework/vendor types reaching into domain code, domain types doing I/O, handlers that aren't thin, one model serving as both stored record and API shape, collaborators constructed instead of injected, scattered construction, config read at the use site. Reported as proposals unless the project declares the rule itself. |
 
 ### Offensive tooling (when detected)
 
@@ -147,7 +148,21 @@ Every finding is bound to an authoritative standard where one exists. The full c
 - **[SOLID](https://en.wikipedia.org/wiki/SOLID)** — single responsibility, open/closed, Liskov substitution, interface segregation, dependency inversion
 - **[12-Factor App](https://12factor.net/)** — config in environment, stateless processes, logs as event streams
 - **[A Philosophy of Software Design](https://www.amazon.com/Philosophy-Software-Design-John-Ousterhout/dp/1732102201)** (Ousterhout) — deep vs shallow modules, pass-through methods, information leakage
+- **[Domain-Driven Design](https://www.domainlanguage.com/ddd/reference/)** — tactical patterns: layering, application services, repositories, keeping persistence and wire shapes distinct
 - **[Cognitive Complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)** (SonarSource) — better nesting metric than cyclomatic complexity
+
+### Signal sources
+
+A standard tells you *what is authoritative*; it rarely tells you *what to grep for*. The
+architecture-and-coupling checks close that gap using signals drawn from a survey of
+[ArjanCodes](https://www.youtube.com/@ArjanCodes)' architecture and design videos
+(2021–2026) — thin handlers, models serving two roles, collaborators built in place,
+test pain as evidence of missing injection.
+
+**The survey supplies signals; the standards above supply the authority.** No finding
+cites the survey. Where a check has no standard behind it, it is reported as a proposal
+to adopt a convention, never as a defect — see the `authority` field in
+[SKILL.md](SKILL.md).
 
 ### Offensive tooling
 
