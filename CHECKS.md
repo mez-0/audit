@@ -120,9 +120,10 @@ def handle(request):
 > managed language — the trigger is *length **and** more than one conceptual
 > thing*. `MAX_FUNCTION_LINES = 50` in `src/audit/lint.py` gives you candidates
 > to read, not a list to report. Two corollaries, both paid for:
-> - **Do not cite NASA Power of 10 Rule 4 here.** Its 60-line limit is a C rule
->   and lives in §14. Citing a C standard against Python manufactures an
->   authority the project never accepted.
+> - **Do not borrow a length threshold from another language's standard.** The
+>   safety-critical C standards that used to supply one have been removed from
+>   this skill; citing any rule against a language it was not written for
+>   manufactures an authority the audited project never accepted.
 > - **Exclude nested definitions from the enclosing function's count.** A tool
 >   factory whose body is inner tool functions with long docstrings is not a god
 >   function; measured on one real codebase, fifteen such factories fell from
@@ -449,104 +450,6 @@ If `.sh` / `.bash` files are present:
 - Missing `shellcheck` directives for intentional deviations
 
 **Severity:** minor (quoting in non-user-input contexts), major (missing error handling), critical (injection via unquoted variables in security-sensitive scripts)
-
----
-
-## 13. C/C++ Safety
-
-**Standards:** NASA/JPL Power of 10, MISRA C:2012, CERT C/C++ Coding Standard
-
-**What to look for:**
-
-### Memory safety
-- Buffer overflows — writing past allocated bounds (arrays, strings, buffers)
-  - *CERT C: ARR30-C, ARR38-C*
-- Use-after-free — accessing memory after `free()` / `delete`
-  - *CERT C: MEM30-C*
-- Double-free — calling `free()` / `delete` on already-freed memory
-  - *CERT C: MEM31-C*
-- Null pointer dereference — using a pointer without checking for NULL
-  - *CERT C: EXP34-C*
-- Uninitialised memory — reading from uninitialised variables or allocated-but-unwritten memory
-  - *CERT C: EXP33-C*
-- Memory leaks — allocating without a corresponding free on all code paths
-  - *CERT C: MEM31-C*
-- Dangling pointers — pointers to stack-local variables returned from functions
-  - *CERT C: DCL30-C*
-
-### Integer safety
-- Integer overflow / underflow — arithmetic on `int`/`unsigned` without bounds checking
-  - *CERT C: INT30-C, INT32-C*
-- Signed/unsigned comparison — implicit conversion bugs
-  - *CERT C: INT31-C, MISRA Rule 10.4*
-- Truncation — assigning a wider type to a narrower one
-  - *CERT C: INT31-C*
-
-### Undefined behaviour
-- Sequence point violations — `i++ + i++`
-  - *CERT C: EXP30-C*
-- Strict aliasing violations — type-punning via pointer casts
-  - *CERT C: EXP39-C*
-- Signed integer overflow (UB in C, defined in some implementations but don't rely on it)
-
-### String handling
-- `strcpy`, `strcat`, `sprintf`, `gets` — use bounded variants (`strncpy`, `strncat`, `snprintf`, never `gets`)
-  - *CERT C: STR31-C*
-- Missing null terminator checks
-  - *CERT C: STR32-C*
-- Format string vulnerabilities — user-controlled format strings
-  - *CERT C: FIO30-C, CWE-134*
-
-### Preprocessor (NASA Rule 8)
-- Token pasting (`##`) and stringification (`#`) — fragile and hard to debug
-- Variadic macros — hard to get right
-- Recursive macros — undefined behaviour
-- Complex conditional compilation — `#ifdef` nesting deeper than 2 levels
-
-**Severity:** critical (memory safety, UB, format strings), major (integer safety, string handling, preprocessor abuse), minor (style-level MISRA deviations)
-
----
-
-## 14. C/C++ Quality
-
-**Standards:** NASA/JPL Power of 10, Cognitive Complexity, CERT C
-
-**What to look for:**
-
-### Function discipline (NASA Rules 4-5)
-- Functions longer than 60 lines (printed, single-page) — *NASA Rule 4*
-- Functions with fewer than 2 assertions on average — *NASA Rule 5*
-  - Assert preconditions, postconditions, invariants
-  - `assert()` or project-specific assertion macros
-- Functions with more than 6 parameters — bundle into a struct
-
-### Scope and declarations (NASA Rule 6)
-- Variables declared far from first use — declare at smallest possible scope
-- Global variables — minimise, prefer function-local or file-static
-- Large scope for loop variables (`int i` declared at function top, used in one loop)
-
-### Return value discipline (NASA Rule 7)
-- Return values of non-void functions unchecked — especially `malloc`, `fopen`, `read`, `write`
-- `printf`/`fprintf` return values unchecked (acceptable in most contexts, but flag in error-handling paths)
-- Explicit `(void)` cast when deliberately ignoring return value
-
-### Pointer discipline (NASA Rule 9)
-- More than one level of pointer dereferencing (`**p`, `***p`)
-- Function pointers outside of a single dispatch/jump table
-- Pointer arithmetic beyond simple array indexing
-
-### Nesting and control flow
-- Same rules as Section 2 (nesting-and-flow) but additionally:
-- `goto` usage — *NASA Rule 1, MISRA Rule 15.x*
-- `setjmp`/`longjmp` — *NASA Rule 1*
-- Recursion — *NASA Rule 1* (all loops must have fixed upper bounds)
-
-### Build discipline (NASA Rule 10)
-- Compiler warnings not treated as errors
-- Missing `-Wall -Wextra -Werror` or equivalent
-- Static analyser findings not addressed
-
-**Severity:** major (function length, missing return checks, scope violations), minor (pointer style, assertion density), critical (unchecked malloc, goto in safety-critical code)
 
 ---
 

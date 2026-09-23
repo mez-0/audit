@@ -4,10 +4,11 @@ Deep code quality audit tool — mechanical AST linter + Claude Code skill for L
 
 ## Structure
 
-- `SKILL.md` — Claude Code skill definition (symlinked from `~/.claude/skills/audit/`)
+- `SKILL.md` — Claude Code skill definition. This checkout is canonical; `~/.claude/skills/audit` is a symlink to it
 - `CHECKS.md` — Check catalogue: what each dimension agent looks for
-- `STANDARDS.md` — Authoritative standards catalogue (OWASP, CERT, NASA, PEP, etc.)
-- `src/audit/lint.py` — Mechanical linter (AST-based, zero dependencies beyond stdlib)
+- `STANDARDS.md` — Authoritative standards catalogue (OWASP, CWE, PEP, Effective Go, Rust API Guidelines, and the reference books)
+- `src/audit/lint.py` — Mechanical linter (Python via AST; TS and shell via line regex)
+- `tests/test_lint.py` — Regression tests, one per fixed bug
 
 ## Usage
 

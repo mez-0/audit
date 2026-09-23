@@ -26,8 +26,9 @@ This is not a linter pass. This is a senior engineer reviewing the codebase with
 eyes, looking for every pattern that makes code harder to read, change, and trust.
 
 Every finding must be **bound to an authoritative standard** where one exists. Cite the
-specific rule (e.g. "violates NASA Power of 10 Rule 4", "CWE-78: OS Command Injection",
-"CERT C MEM33-C"). The full standards catalogue is in [STANDARDS.md](STANDARDS.md).
+specific rule (e.g. "CWE-78: OS Command Injection", "OWASP A03:2021",
+"PEP 8 — Package and Module Names", "Refactoring 2e, Ch. 3 — Large Class").
+The full standards catalogue is in [STANDARDS.md](STANDARDS.md).
 
 ## Ground rules
 
@@ -75,22 +76,18 @@ not appear here in numeric order.
 8. **react-patterns** — Derived state in useState, wrong useEffect usage, missing error boundaries, prop drilling
 9. **ts-structure** — Barrel files, missing path aliases, component splitting without symptoms
 
-### C/C++ dimensions (if C/C++ files present)
-13. **c-safety** — Memory safety (buffer overflows, use-after-free, double-free, null derefs), integer overflow, undefined behaviour. Cite CERT C MEM/INT/ARR rules, MISRA rules, NASA Power of 10.
-14. **c-quality** — Function length (NASA Rule 4: 60 lines max), nesting depth, assertion density (NASA Rule 5), preprocessor discipline (NASA Rule 8), pointer depth (NASA Rule 9). Cite NASA Power of 10 rules.
-
-> **The NASA Power of 10 rules are C rules and stay in this dimension.** Rule 4's
-> 60-line limit, Rule 5's assertion density and Rule 9's pointer depth (dimension 14) do not
-> apply to a Python or TypeScript codebase and must not be cited against one.
-> This leaked once and cost real work: a Python-only project was issued a
-> "two functions exceed the NASA Rule 4 / 60-line bar" ticket that survived
-> three months before measurement showed the codebase held 97 such functions
-> and had never adopted the rule. Python's own length signal is
-> `MAX_FUNCTION_LINES = 50` in `src/audit/lint.py` (measured on body lines),
-> reported under dimension 3 **abstraction** as a god-function smell — a
-> *symptom to investigate*, not a threshold to enforce. If a project wants a
-> length rule it must write one into its own style guide; absent that, report
-> length only where it is evidence for a different finding.
+> **A rule written for one language is not evidence about another.** Cite a
+> standard only against the language it was written for, and only where the
+> audited project has actually adopted it. This is not hypothetical: a Python
+> project was once issued a ticket for exceeding a 60-line function bar taken
+> from NASA Power of 10 — a C standard. It survived three months before anyone
+> measured, at which point the codebase turned out to hold 97 such functions
+> and to have never adopted the rule. The C/C++ standards that caused it have
+> since been removed from this skill entirely (first-party C here amounted to
+> about eight files), but the failure mode outlives them: length, nesting and
+> complexity numbers borrowed from elsewhere are *symptoms worth reading*, not
+> thresholds to enforce. If a project wants a threshold it writes one into its
+> own style guide.
 
 ### Go dimensions (if Go files present)
 15. **go-patterns** — Error handling (check returns, wrap with context), goroutine leaks, interface compliance, naming conventions. Cite Effective Go, Uber Go Style Guide.
@@ -115,7 +112,7 @@ Each agent MUST:
 - Read the mechanical findings written in Phase 0 to `docs/audit/lint.jsonl` — filter to your dimension. Treat them as **candidates to verify**, not findings to report: the linter has known false positives
 - Search the codebase methodically — don't just spot-check
 - Return structured findings: `{file, line, check, severity, description, standard, suggestion, authority}`
-  - `standard` is the specific rule cited (e.g. "NASA Power of 10 Rule 4", "CWE-78", "CERT C MEM33-C", "OWASP A03:2021")
+  - `standard` is the specific rule cited (e.g. "CWE-78", "OWASP A03:2021", "PEP 8 — Package and Module Names", "A Philosophy of Software Design, Ch. 4 — Classitis"). Cite the edition where one matters (Fowler's smell names changed between editions)
   - `authority` is either **`project`** (the rule is written in this project's own `CLAUDE.md` / style guide — quote the line) or **`external`** (it comes only from STANDARDS.md). Security and memory-safety findings are always actionable regardless. For everything else the distinction is load-bearing: an `external`-only finding is a **proposal to adopt a convention**, not a defect, and must be reported as one. Filing it as a defect is how a codebase acquires rules nobody agreed to and then acquires tickets to enforce them.
 
 ## Phase 2: Cross-verification
@@ -236,7 +233,7 @@ future audits or development:
 - Recurring architectural smells (e.g. "service layer consistently has god functions mixing I/O and logic")
 - Systematic gaps (e.g. "no type hints anywhere in the API boundary layer")
 - Security posture observations (e.g. "all SQL queries use parameterised queries except the reporting module")
-- Standards compliance patterns (e.g. "codebase follows CERT C closely but ignores NASA Power of 10 function length limits")
+- Standards compliance patterns (e.g. "module naming follows PEP 8 throughout except the ingest package")
 
 **Feedback memories** (type: `feedback`) — learnings about how to audit this project
 better next time:

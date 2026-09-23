@@ -6,17 +6,20 @@ This isn't a linter pass. It's a senior engineer reviewing your codebase with fr
 
 ## Install
 
-Clone the repo and symlink it into your Claude Code skills directory:
+Clone the repo, then symlink it into your Claude Code skills directory — one
+checkout, one source of truth:
 
 ```bash
-git clone git@github.com:mez-0/audit.git ~/.claude/skills/audit
+git clone git@github.com:mez-0/audit.git ~/dev/audit
+ln -s ~/dev/audit ~/.claude/skills/audit
 ```
 
-Install the mechanical linter (stdlib only, no external deps):
+Install the mechanical linter (stdlib plus pytest for the test suite):
 
 ```bash
 cd ~/dev/audit
 uv sync
+uv run pytest        # 19 regression tests
 ```
 
 That's it. `/audit` is now available globally in every Claude Code session.
@@ -38,7 +41,7 @@ This runs the full four-phase audit:
 3. **Cross-verification** — deduplicates, verifies borderline findings, ranks by severity
 4. **Report** — writes a dated report to `docs/audit/YYYYMMDD_audit.md` with findings grouped by file
 
-Requires Opus 4.6 and max effort. It's thorough — expect it to take a few minutes on a medium codebase.
+Use the most capable available model at maximum reasoning effort. It's thorough — expect it to take a few minutes on a medium codebase.
 
 ### Mechanical linter only
 
@@ -78,13 +81,6 @@ The linter catches things grep can't reliably find via AST analysis: nesting dep
 | **React patterns** | Derived state in `useState`, wrong `useEffect` usage (data transform, event handling, derived state), prop drilling through 3+ levels, missing error boundaries, stale closure bugs. |
 | **TS structure** | Barrel files that break tree-shaking, deep relative imports, inline style objects not hoisted, direct modification of UI library files. |
 
-### C / C++
-
-| Dimension | What it hunts |
-|-----------|--------------|
-| **Safety** | Buffer overflows, use-after-free, double-free, null derefs, uninitialised memory, integer overflow, undefined behaviour, format string vulnerabilities, unsafe string functions (`strcpy`, `sprintf`, `gets`). |
-| **Quality** | Functions >60 lines (NASA Rule 4), assertion density (NASA Rule 5), variable scope (Rule 6), unchecked return values (Rule 7), preprocessor abuse (Rule 8), pointer depth (Rule 9), `goto`/`setjmp`/recursion (Rule 1). |
-
 ### Go
 
 | Dimension | What it hunts |
@@ -121,12 +117,6 @@ The linter catches things grep can't reliably find via AST analysis: nesting dep
 ## Standards referenced
 
 Every finding is bound to an authoritative standard where one exists. The full catalogue is in [STANDARDS.md](STANDARDS.md). Key references:
-
-### Safety-critical
-
-- **[NASA/JPL Power of 10](https://spinroot.com/gerard/pdf/P10.pdf)** — ten rules for safety-critical C. Function length limits, assertion density, scope discipline, preprocessor restrictions, pointer depth.
-- **[MISRA C:2012](https://www.misra.org.uk/misra-c/)** — motor industry standard (also used in aerospace, medical, rail). Mandatory/required/advisory rules covering undefined behaviour, type safety, control flow.
-- **[CERT C](https://wiki.sei.cmu.edu/confluence/display/c/SEI+CERT+C+Coding+Standard)** / **[CERT C++](https://wiki.sei.cmu.edu/confluence/display/cplusplus/SEI+CERT+C%2B%2B+Coding+Standard)** — Carnegie Mellon's secure coding rules. Memory safety, integer safety, string handling, concurrency.
 
 ### Security
 
