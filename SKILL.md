@@ -6,7 +6,8 @@ description: |
   missing early returns, absent docstrings, repeated code, missed abstractions, long
   functions, dead code, inconsistent naming, and every other pattern that makes a
   codebase harder to read and maintain. Thorough — spawns parallel agents per
-  check dimension and cross-verifies findings. Requires Opus 4.6, max effort.
+  check dimension and cross-verifies findings. Use the most capable available
+  model at maximum reasoning effort.
 allowed-tools:
   - Agent
   - Bash
@@ -14,10 +15,8 @@ allowed-tools:
   - Write
   - Edit
   - Workflow
-  - TaskCreate
-  - TaskUpdate
-  - TaskGet
-  - TaskList
+  - Grep
+  - Glob
 ---
 
 # /audit — Deep Code Quality Audit
@@ -32,7 +31,7 @@ specific rule (e.g. "violates NASA Power of 10 Rule 4", "CWE-78: OS Command Inje
 
 ## Ground rules
 
-- **Opus 4.6, max effort.** This audit must be thorough. Don't skim.
+- **Most capable model, max effort.** This audit must be thorough. Don't skim.
 - **No false positives.** Every finding must be real. If you're not sure, verify before reporting.
 - **Respect the project's own rules.** If there's a `CLAUDE.md` or `CODE_STYLE.md` in the directory, read it first — the project may have conventions that override generic advice (e.g. orbit requires Sphinx docstrings on private helpers; some projects don't want docstrings at all).
 - **Language-aware.** Detect which languages are in use and apply the right checks. Python, TypeScript/JavaScript, Go, Rust, Bash, C/C++ are all fair game.
@@ -51,7 +50,7 @@ Before any analysis, gather context:
    - **Rules to verify** — feeds dimension 18 (**enforcement**). Every entry is a declared check: a ruff/eslint `select` list, a pre-commit hook, a CI step, a documented convention with imperative force ("always", "never", "must").
 2. **Detect languages in use** — `find . -type f \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.go' -o -name '*.rs' -o -name '*.sh' -o -name '*.c' -o -name '*.cpp' -o -name '*.h' \) | head -200` to get the lay of the land.
 3. **Understand the structure** — `find . -type d -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/venv/*' -not -path '*/.venv/*' | head -100`
-4. **Run the mechanical linter** — execute `uv run --project ~/dev/audit audit-lint .` to get AST-level findings (nesting depth, function length, magic numbers, missing docstrings, duplicate blocks). This gives you a baseline of mechanical issues before the deep analysis.
+4. **Run the mechanical linter** — `mkdir -p docs/audit && uv run --project ~/dev/audit audit-lint . > docs/audit/lint.jsonl`. AST-level candidates (nesting depth, function length, magic numbers, missing docstrings, duplicate blocks). **Write it to that path** — Phase 1 agents do not inherit this context and are told to read the file. A `unreadable-file` or `unparseable-file` entry means the linter could not analyse that file: it is not a clean file, and the deep analysis must cover it by hand.
 5. **Select applicable standards** — based on the languages detected, read the relevant sections of [STANDARDS.md](STANDARDS.md). Build a list of which standards apply to this codebase. If the codebase is offensive tooling (C2, implant, loader, post-exploitation — check `CLAUDE.md`, imports, and project structure for indicators), include the **Offensive Tooling & OPSEC** standards.
 6. **Prepare the audit directory** — run `mkdir -p docs/audit` in the project root.
 
@@ -59,7 +58,9 @@ Before any analysis, gather context:
 
 Launch a **Workflow** that fans out one agent per check dimension. Each agent reads the full check specification from [CHECKS.md](CHECKS.md) for its dimension, plus the applicable standards from [STANDARDS.md](STANDARDS.md), then audits the codebase.
 
-The dimensions are:
+The dimensions are. **Each number is the `CHECKS.md` section number, not a
+sequence** — read `CHECKS.md` §N for the dimension numbered N, and note they do
+not appear here in numeric order.
 
 ### Python dimensions (if Python files present)
 1. **magic-values** — Numeric/string literals that should be named constants
@@ -75,11 +76,11 @@ The dimensions are:
 9. **ts-structure** — Barrel files, missing path aliases, component splitting without symptoms
 
 ### C/C++ dimensions (if C/C++ files present)
-10. **c-safety** — Memory safety (buffer overflows, use-after-free, double-free, null derefs), integer overflow, undefined behaviour. Cite CERT C MEM/INT/ARR rules, MISRA rules, NASA Power of 10.
-11. **c-quality** — Function length (NASA Rule 4: 60 lines max), nesting depth, assertion density (NASA Rule 5), preprocessor discipline (NASA Rule 8), pointer depth (NASA Rule 9). Cite NASA Power of 10 rules.
+13. **c-safety** — Memory safety (buffer overflows, use-after-free, double-free, null derefs), integer overflow, undefined behaviour. Cite CERT C MEM/INT/ARR rules, MISRA rules, NASA Power of 10.
+14. **c-quality** — Function length (NASA Rule 4: 60 lines max), nesting depth, assertion density (NASA Rule 5), preprocessor discipline (NASA Rule 8), pointer depth (NASA Rule 9). Cite NASA Power of 10 rules.
 
 > **The NASA Power of 10 rules are C rules and stay in this dimension.** Rule 4's
-> 60-line limit, Rule 5's assertion density and Rule 9's pointer depth do not
+> 60-line limit, Rule 5's assertion density and Rule 9's pointer depth (dimension 14) do not
 > apply to a Python or TypeScript codebase and must not be cited against one.
 > This leaked once and cost real work: a Python-only project was issued a
 > "two functions exceed the NASA Rule 4 / 60-line bar" ticket that survived
@@ -92,15 +93,15 @@ The dimensions are:
 > length only where it is evidence for a different finding.
 
 ### Go dimensions (if Go files present)
-12. **go-patterns** — Error handling (check returns, wrap with context), goroutine leaks, interface compliance, naming conventions. Cite Effective Go, Uber Go Style Guide.
+15. **go-patterns** — Error handling (check returns, wrap with context), goroutine leaks, interface compliance, naming conventions. Cite Effective Go, Uber Go Style Guide.
 
 ### Rust dimensions (if Rust files present)
-13. **rust-patterns** — Unsafe block discipline, error handling (Result/Option usage), API design, clippy categories. Cite Rust API Guidelines, ANSSI Rust Secure Coding.
+16. **rust-patterns** — Unsafe block discipline, error handling (Result/Option usage), API design, clippy categories. Cite Rust API Guidelines, ANSSI Rust Secure Coding.
 
 ### Universal dimensions (always run)
-14. **naming** — Inconsistent naming conventions, misleading names, abbreviations without context
-15. **error-handling** — Bare except/catch, swallowed errors, missing error context, panic in library code
-16. **security** — Hardcoded secrets, SQL injection, command injection, path traversal, XSS, SSRF. Every finding MUST cite the OWASP Top 10 category AND the CWE number. Reference OWASP ASVS verification level where applicable.
+10. **naming** — Inconsistent naming conventions, misleading names, abbreviations without context
+11. **error-handling** — Bare except/catch, swallowed errors, missing error context, panic in library code
+12. **security** — Hardcoded secrets, SQL injection, command injection, path traversal, XSS, SSRF. Every finding MUST cite the OWASP Top 10 category AND the CWE number. Reference OWASP ASVS verification level where applicable.
 18. **enforcement** — Rules the project *declares* and does not *enforce*. Every other dimension finds code that breaks a rule; this one finds rules that break nothing. See [CHECKS.md](CHECKS.md) §18. **Run the declared checks — do not read the config and assume it passes.**
 19. **architecture-coupling** — Where the seams are: module dependency direction, framework/vendor types leaking into domain code, handlers that aren't thin, one model serving two roles, collaborators constructed rather than injected, scattered construction, config read where it's used. See [CHECKS.md](CHECKS.md) §19 *Architecture & Coupling*. Works between modules; §3 **abstraction** works inside one. **Nearly every finding here is `authority: external` — a layering rule the project never wrote down is a proposal, not a defect.** Cites SOLID (DIP/ISP), Ousterhout, DDD tactical patterns, 12-Factor III.
 
@@ -111,7 +112,7 @@ Each agent MUST:
 - Read the relevant section of [CHECKS.md](CHECKS.md) for detailed guidance on what to look for
 - Read the applicable sections of [STANDARDS.md](STANDARDS.md) for the authoritative rules
 - Read any project-specific style guide found in Phase 0
-- Read the `lint_assist.py` output for mechanical findings in their dimension
+- Read the mechanical findings written in Phase 0 to `docs/audit/lint.jsonl` — filter to your dimension. Treat them as **candidates to verify**, not findings to report: the linter has known false positives
 - Search the codebase methodically — don't just spot-check
 - Return structured findings: `{file, line, check, severity, description, standard, suggestion, authority}`
   - `standard` is the specific rule cited (e.g. "NASA Power of 10 Rule 4", "CWE-78", "CERT C MEM33-C", "OWASP A03:2021")
@@ -140,11 +141,11 @@ scope: <directory audited>
 languages:
   - python
   - typescript
-standards_applied:
-  - "NASA/JPL Power of 10"
-  - "CERT C"
+standards_applied:        # only standards that apply to the languages above
   - "OWASP Top 10 (2021)"
-  - "..."
+  - "CWE"
+  - "PEP 8 / PEP 257"
+  - "A Philosophy of Software Design"
 findings:
   critical: N
   major: N
@@ -169,7 +170,8 @@ findings:
 | Standard | Findings | URL |
 |----------|----------|-----|
 | OWASP A03:2021 — Injection | 3 | https://owasp.org/Top10/A03_2021-Injection/ |
-| NASA Power of 10 Rule 4 | 5 | https://spinroot.com/gerard/pdf/P10.pdf |
+| CWE-89 — SQL Injection | 1 | https://cwe.mitre.org/data/definitions/89.html |
+| Cognitive Complexity (SonarSource) | 5 | https://www.sonarsource.com/docs/CognitiveComplexity.pdf |
 | ... | ... | ... |
 
 ### Systemic patterns
@@ -192,8 +194,9 @@ findings:
 
 - **[CRITICAL]** Line 42: SQL query built with f-string interpolation — use parameterised queries
   - *Standard: OWASP A03:2021 — Injection, CWE-89*
-- **[MAJOR]** Lines 15-89: `process_data()` is 74 lines with 6 levels of nesting — extract early returns and split into helpers
-  - *Standard: NASA Power of 10 Rule 4, Cognitive Complexity*
+- **[MAJOR]** Lines 15-89: `process_data()` mixes I/O, transformation and export in one 74-line body at 6 levels of nesting — split by responsibility and flatten with early returns
+  - *Standard: Cognitive Complexity (SonarSource); A Philosophy of Software Design — deep modules*
+  - *Authority: external — proposal, no project rule declares a length or nesting limit*
 - **[MINOR]** Line 7: Magic number `86400` — use `SECONDS_PER_DAY = 86400`
   - *Standard: PEP 8 — Constants*
 

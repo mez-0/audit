@@ -159,7 +159,7 @@ def handle(request):
 ### isinstance chains
 - `isinstance(x, (A, B, C, D))` with 4+ types — suggests a protocol/ABC or registry
 - if/elif chains where each branch tests `isinstance` — polymorphism or visitor pattern
-- The `lint_assist.py` script detects both patterns mechanically
+- `audit-lint` detects both patterns mechanically — verify each before reporting
 
 ### String literals as enum values
 - The same string (`"pending"`, `"active"`, `"failed"`) passed as an argument to 3+ call sites — should be a constant or enum member

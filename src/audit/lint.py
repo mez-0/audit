@@ -91,15 +91,23 @@ class AuditState:
         self.findings.append(finding)
 
 
-def should_skip(path: Path) -> bool:
-    parts = set(path.parts)
-    if parts & SKIP_DIRS:
+def should_skip(path: Path, root: Path | None = None) -> bool:
+    """True if `path` is vendored/generated/build output and should not be audited.
+
+    Only the portion of the path *below* the scan root is considered. Paths are
+    resolved to absolute before collection, so judging every component would let
+    an unrelated ancestor silence the whole run: a project checked out under
+    ~/build/, ~/dist/ or any directory containing "vendor" would audit to zero
+    findings and exit 0, which is indistinguishable from a clean codebase.
+    """
+    if root is not None:
+        try:
+            path = path.relative_to(root)
+        except ValueError:
+            pass
+    if set(path.parts) & SKIP_DIRS:
         return True
-    for part in path.parts:
-        low = part.lower()
-        if any(p in low for p in SKIP_PATTERNS):
-            return True
-    return False
+    return any(pat in part.lower() for part in path.parts for pat in SKIP_PATTERNS)
 
 
 def collect_python_files(root: Path) -> list[Path]:
@@ -107,12 +115,12 @@ def collect_python_files(root: Path) -> list[Path]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         dp = Path(dirpath)
-        if should_skip(dp):
+        if should_skip(dp, root):
             continue
         for f in filenames:
             if f.endswith(".py"):
                 fp = dp / f
-                if not should_skip(fp):
+                if not should_skip(fp, root):
                     files.append(fp)
     return sorted(files)
 
@@ -123,12 +131,12 @@ def collect_ts_files(root: Path) -> list[Path]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         dp = Path(dirpath)
-        if should_skip(dp):
+        if should_skip(dp, root):
             continue
         for f in filenames:
             if any(f.endswith(ext) for ext in exts):
                 fp = dp / f
-                if not should_skip(fp):
+                if not should_skip(fp, root):
                     files.append(fp)
     return sorted(files)
 
@@ -138,7 +146,7 @@ def collect_shell_files(root: Path) -> list[Path]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         dp = Path(dirpath)
-        if should_skip(dp):
+        if should_skip(dp, root):
             continue
         for f in filenames:
             fp = dp / f
@@ -189,13 +197,25 @@ def _has_docstring(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) 
     if not node.body:
         return False
     first = node.body[0]
-    return isinstance(first, ast.Expr) and isinstance(first.value, (ast.Constant, ast.Str))
-
-
-def _is_magic_number(node: ast.Constant) -> bool:
-    if not isinstance(node.value, (int, float)):
+    if not isinstance(first, ast.Expr) or not isinstance(first.value, ast.Constant):
         return False
-    return node.value not in MAGIC_NUMBER_WHITELIST
+    # `...` is a stub body (Protocol members, overloads), not documentation.
+    return isinstance(first.value.value, str)
+
+
+def _signed_value(node: ast.Constant, parent_map: dict):
+    """The literal's value as written, with a unary +/- folded back in."""
+    parent = parent_map.get(id(node))
+    if isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.USub):
+        return -node.value
+    return node.value
+
+
+def _is_magic_number(node: ast.Constant, parent_map: dict | None = None) -> bool:
+    if not isinstance(node.value, (int, float)) or isinstance(node.value, bool):
+        return False
+    value = node.value if parent_map is None else _signed_value(node, parent_map)
+    return value not in MAGIC_NUMBER_WHITELIST
 
 
 def _is_in_assignment_target(node: ast.AST, parent_map: dict) -> bool:
@@ -213,16 +233,87 @@ def _is_in_assignment_target(node: ast.AST, parent_map: dict) -> bool:
     return False
 
 
+def _is_stub(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True for a body that is only `...` or `pass` — a Protocol member, an
+    @overload signature or an abstract method. There is no implementation to
+    document; the contract lives on the type it belongs to."""
+    body = [st for st in node.body
+            if not (isinstance(st, ast.Expr) and isinstance(st.value, ast.Constant)
+                    and isinstance(st.value.value, str))]
+    if len(body) != 1:
+        return False
+    only = body[0]
+    if isinstance(only, ast.Pass):
+        return True
+    return (isinstance(only, ast.Expr) and isinstance(only.value, ast.Constant)
+            and only.value.value is Ellipsis)
+
+
+def _blank_literals(line: str, quotes: str = "\"'`") -> str:
+    """Replace the contents of quoted spans with spaces, keeping line length.
+
+    The TS and shell checks are line-regex, not lexer-backed, so without this
+    they match inside strings: `const label = "type: any"` reported as an `any`
+    type, `echo "Total: $count files"` reported as an unquoted variable, and a
+    brace inside a string literal skewing the nesting counter for a whole file.
+    """
+    out, quote, escaped = [], None, False
+    for ch in line:
+        if escaped:
+            out.append(" " if quote else ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            out.append(" " if quote else ch)
+            escaped = True
+            continue
+        if quote:
+            out.append(" " if ch != quote else ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in quotes:
+            quote = ch
+        out.append(ch)
+    return "".join(out)
+
+
+def _strip_line_comment(line: str) -> str:
+    """Drop a trailing // comment, ignoring // inside a string literal."""
+    blanked = _blank_literals(line)
+    idx = blanked.find("//")
+    return line if idx == -1 else line[:idx]
+
+
+def _has_decorator(node: ast.AST, names: tuple[str, ...]) -> bool:
+    """True if any decorator on `node` resolves to one of `names`."""
+    for dec in getattr(node, "decorator_list", []):
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(target, ast.Name) and target.id in names:
+            return True
+        if isinstance(target, ast.Attribute) and target.attr in names:
+            return True
+    return False
+
+
 def _is_in_decorator_or_default(node: ast.AST, parent_map: dict) -> bool:
-    parent = parent_map.get(id(node))
+    """True if `node` sits inside a decorator expression or a parameter default.
+
+    Walks the ancestor chain carrying the child it came from: a literal nested in
+    a decorator *call* (`@lru_cache(maxsize=256)`) is a grandchild of the Call, so
+    testing the original node against decorator_list never matches.
+    """
+    child, parent = node, parent_map.get(id(node))
     while parent is not None:
-        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node in getattr(parent, "decorator_list", []):
+        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if any(child is d for d in getattr(parent, "decorator_list", [])):
                 return True
-            for arg in parent.args.defaults + parent.args.kw_defaults:
-                if arg is node:
-                    return True
-        parent = parent_map.get(id(parent))
+            args = getattr(parent, "args", None)
+            if args is not None and any(
+                child is a for a in list(args.defaults) + list(args.kw_defaults)
+            ):
+                return True
+        child, parent = parent, parent_map.get(id(parent))
     return False
 
 
@@ -487,11 +578,8 @@ def _check_kwargs_signatures(tree: ast.AST, rel: str, state: AuditState) -> None
         # Skip dunder methods and decorators like @overload — kwargs are expected there
         if node.name.startswith("__") and node.name.endswith("__"):
             continue
-        for dec in node.decorator_list:
-            if isinstance(dec, ast.Name) and dec.id in ("overload", "abstractmethod"):
-                continue
-            if isinstance(dec, ast.Attribute) and dec.attr in ("overload", "abstractmethod"):
-                continue
+        if _has_decorator(node, ("overload", "abstractmethod", "singledispatch")):
+            continue
         state.add(Finding(
             file=rel,
             line=node.lineno,
@@ -504,14 +592,33 @@ def _check_kwargs_signatures(tree: ast.AST, rel: str, state: AuditState) -> None
 
 def audit_python_file(filepath: Path, state: AuditState, root: Path) -> None:
     rel = str(filepath.relative_to(root))
+    # A file that cannot be analysed must never look like a file with nothing
+    # wrong. Both paths below used to `return` silently.
     try:
-        source = filepath.read_text(encoding="utf-8", errors="replace")
-    except (OSError, PermissionError):
+        source = filepath.read_text(encoding="utf-8")
+    except (OSError, PermissionError) as exc:
+        state.add(Finding(
+            file=rel, line=1, end_line=None,
+            check="unreadable-file", severity="major",
+            description=f"Not audited — could not be read ({type(exc).__name__}: {exc})",
+        ))
+        return
+    except UnicodeDecodeError as exc:
+        state.add(Finding(
+            file=rel, line=1, end_line=None,
+            check="unreadable-file", severity="major",
+            description=f"Not audited — not valid UTF-8 ({exc.reason})",
+        ))
         return
 
     try:
         tree = ast.parse(source, filename=str(filepath))
-    except SyntaxError:
+    except SyntaxError as exc:
+        state.add(Finding(
+            file=rel, line=exc.lineno or 1, end_line=None,
+            check="unparseable-file", severity="major",
+            description=f"Not audited — failed to parse ({exc.msg})",
+        ))
         return
 
     parent_map = _build_parent_map(tree)
@@ -552,7 +659,9 @@ def audit_python_file(filepath: Path, state: AuditState, root: Path) -> None:
                     description=f"`{node.name}()` has {pcount} parameters (threshold: {MAX_PARAMS})",
                 ))
 
-            if not _has_docstring(node) and not node.name.startswith("_"):
+            if (not _has_docstring(node) and not node.name.startswith("_")
+                    and not _is_stub(node)
+                    and not _has_decorator(node, ("overload", "abstractmethod"))):
                 state.add(Finding(
                     file=rel,
                     line=node.lineno,
@@ -572,16 +681,16 @@ def audit_python_file(filepath: Path, state: AuditState, root: Path) -> None:
                     description=f"`{node.name}()` wraps its body in if/else — consider an early return for the short branch",
                 ))
 
-            if node.returns is None and not node.name.startswith("_"):
-                if not (isinstance(node, ast.FunctionDef) and node.name in ("__init__", "__post_init__", "__del__", "__enter__", "__exit__")):
-                    state.add(Finding(
-                        file=rel,
-                        line=node.lineno,
-                        end_line=None,
-                        check="missing-return-type",
-                        severity="minor",
-                        description=f"Public function `{node.name}()` has no return type annotation",
-                    ))
+            if (node.returns is None and not node.name.startswith("_")
+                    and not _is_stub(node)):
+                state.add(Finding(
+                    file=rel,
+                    line=node.lineno,
+                    end_line=None,
+                    check="missing-return-type",
+                    severity="minor",
+                    description=f"Public function `{node.name}()` has no return type annotation",
+                ))
 
         elif isinstance(node, ast.ClassDef):
             if not _has_docstring(node) and not node.name.startswith("_"):
@@ -595,7 +704,7 @@ def audit_python_file(filepath: Path, state: AuditState, root: Path) -> None:
                 ))
 
         elif isinstance(node, ast.Constant):
-            if _is_magic_number(node):
+            if _is_magic_number(node, parent_map):
                 if not _is_in_assignment_target(node, parent_map) and not _is_in_decorator_or_default(node, parent_map):
                     parent = parent_map.get(id(node))
                     if not isinstance(parent, (ast.Slice, ast.Index)):
@@ -605,7 +714,7 @@ def audit_python_file(filepath: Path, state: AuditState, root: Path) -> None:
                             end_line=None,
                             check="magic-number",
                             severity="minor",
-                            description=f"Magic number `{node.value}` — consider a named constant",
+                            description=f"Magic number `{_signed_value(node, parent_map)}` — consider a named constant",
                         ))
 
     # ── String literal enum candidates ──
@@ -759,8 +868,9 @@ def audit_ts_file(filepath: Path, state: AuditState, root: Path) -> None:
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
 
-        if re.search(r"\bany\b", stripped) and not stripped.startswith("//") and not stripped.startswith("*"):
-            if re.search(r":\s*any\b|<any>|\bas\s+any\b|any\[\]", stripped):
+        code = _blank_literals(_strip_line_comment(stripped))
+        if re.search(r"\bany\b", code) and not stripped.startswith("//") and not stripped.startswith("*"):
+            if re.search(r":\s*any\b|<any>|\bas\s+any\b|any\[\]", code):
                 state.add(Finding(
                     file=rel, line=i, end_line=None,
                     check="ts-any",
@@ -809,8 +919,9 @@ def audit_ts_file(filepath: Path, state: AuditState, root: Path) -> None:
         stripped = line.strip()
         if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
             continue
-        opens = stripped.count("{") - stripped.count("}")
-        depth += opens
+        code = _blank_literals(_strip_line_comment(stripped))
+        depth += code.count("{") - code.count("}")
+        depth = max(depth, 0)
         if depth > max_depth:
             max_depth = depth
             max_depth_line = i
@@ -855,18 +966,20 @@ def audit_shell_file(filepath: Path, state: AuditState, root: Path) -> None:
         if "set -o pipefail" in stripped or "set -euo" in stripped:
             has_set_pipefail = True
 
-        # Unquoted variable in non-assignment context
-        if re.search(r'(?<!")\$\{?\w+\}?(?!")', stripped) and not stripped.startswith("#"):
-            if not re.search(r'"\$', stripped) and "$" in stripped:
-                var_match = re.search(r'\$(\{?\w+\}?)', stripped)
-                if var_match and var_match.group(1) not in ("?", "!", "#", "@", "*", "$", "0"):
-                    if "=" not in stripped.split("$")[0] or "[" in stripped:
-                        state.add(Finding(
-                            file=rel, line=i, end_line=None,
-                            check="unquoted-var",
-                            severity="minor",
-                            description=f"Potentially unquoted variable `${var_match.group(1)}` — quote to prevent word splitting",
-                        ))
+        # Unquoted variable in non-assignment context. Blanking quoted spans
+        # first means a variable *inside* quotes is correctly not a finding.
+        outside_quotes = _blank_literals(stripped)
+        var_match = re.search(r'\$(\{?\w+\}?)', outside_quotes)
+        is_assignment_rhs = re.match(r'^\w+=', stripped) is not None
+        if (not stripped.startswith("#") and var_match
+                and var_match.group(1) not in ("?", "!", "#", "@", "*", "$", "0")
+                and not is_assignment_rhs):
+            state.add(Finding(
+                file=rel, line=i, end_line=None,
+                check="unquoted-var",
+                severity="minor",
+                description=f"Potentially unquoted variable `${var_match.group(1)}` — quote to prevent word splitting",
+            ))
 
         if stripped.startswith("eval "):
             state.add(Finding(
@@ -888,25 +1001,49 @@ def audit_shell_file(filepath: Path, state: AuditState, root: Path) -> None:
 # ── Duplicate reporting ───────────────────────────────────────────────
 
 def report_duplicates(state: AuditState) -> None:
-    for block_hash, locations in state.code_blocks.items():
-        if len(locations) < 2:
-            continue
-        # Skip if all locations are in the same file within 10 lines (likely same function)
+    """Emit one finding per duplicated region, not one per sliding window.
+
+    Blocks are hashed over overlapping MIN_DUPLICATE_LINES windows, so an
+    N-line duplicate previously produced N-MIN_DUPLICATE_LINES+1 separate
+    findings pointing at consecutive start lines. Windows that are each other's
+    +1 shift describe one region: collapse the chain and report its true span.
+    """
+    groups = {h: sorted(locs) for h, locs in state.code_blocks.items() if len(locs) >= 2}
+    keys = {tuple(locs) for locs in groups.values()}
+
+    def shifted_back(key: tuple) -> tuple:
+        return tuple((f, line - 1) for f, line in key)
+
+    # Walk each window back to the first window of its chain; the chain length
+    # is how many lines the region extends beyond one window.
+    roots: dict[tuple, int] = {}
+    for locs in groups.values():
+        root, extra = tuple(locs), 0
+        while shifted_back(root) in keys:
+            root, extra = shifted_back(root), extra + 1
+        roots[root] = max(roots.get(root, 0), extra)
+
+    for root, extra in sorted(roots.items()):
+        locations = list(root)
+        span = MIN_DUPLICATE_LINES + extra
+
+        # Overlapping runs inside one file are the same code seen twice by the
+        # window, not two copies of it.
         files = {loc[0] for loc in locations}
         if len(files) == 1:
             lines = sorted(loc[1] for loc in locations)
-            if all(lines[i + 1] - lines[i] < MIN_DUPLICATE_LINES + 2 for i in range(len(lines) - 1)):
+            if all(lines[i + 1] - lines[i] < span + 2 for i in range(len(lines) - 1)):
                 continue
 
-        loc_strs = [f"{f}:{l}" for f, l in locations[:5]]
+        loc_strs = [f"{f}:{line}" for f, line in locations[:5]]
         first_file, first_line = locations[0]
         state.add(Finding(
             file=first_file,
             line=first_line,
-            end_line=first_line + MIN_DUPLICATE_LINES - 1,
+            end_line=first_line + span - 1,
             check="duplicate-code",
             severity="major" if len(locations) > 2 else "minor",
-            description=f"Duplicate {MIN_DUPLICATE_LINES}-line block found in {len(locations)} locations: {', '.join(loc_strs)}",
+            description=f"Duplicate {span}-line block found in {len(locations)} locations: {', '.join(loc_strs)}",
         ))
 
 
