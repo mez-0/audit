@@ -135,6 +135,48 @@ def handle(request):
 - Dictionaries used as structs (accessing string keys for structured data)
 - State passed through multiple function calls via parameters that could be instance state
 
+*Not when:* the grouping has no state that outlives a single call. Shared
+parameters alone are a signature problem (§19) before they are a class
+problem — a module of functions namespaces just as well, without the ceremony.
+**Test the proposal against *Code Complete* 2e §6.4 "Reasons to Create a
+Class"**: if it matches none of the enumerated reasons, the finding is that a
+class is not warranted, not that one is missing.
+
+### Unnecessary class (the same question, other way round)
+
+An agent asked to improve code reaches for classes by reflex, so this direction
+needs checking at least as hard as the one above. *A Philosophy of Software
+Design* Ch. 4 names the habit — **classitis** — the assumption that smaller and
+more numerous classes are inherently better, which buys indirection and pays
+nothing back.
+
+- **No instance state.** Only `@staticmethod` / `@classmethod`, or every method
+  ignores `self`. A module of functions does this without the ceremony.
+- **A class used purely to namespace functions.** The module is already the
+  namespace in Python, Go and Rust.
+- **Named after a verb** — `DataValidator`, `RequestHandler`, `ReportGenerator`
+  — with one real method and no state. Behaviour with no state is a function.
+  *Code Complete* 2e §6.4 "Classes to Avoid" calls this out directly.
+- **Instantiated once, used once, discarded** — `Thing(args).run()` at the only
+  call site is a function with extra steps.
+- **Fields and accessors, no behaviour** — *Refactoring* 2e Ch. 3, **Data Class**.
+  Either give it the behaviour that operates on its data, or make it a plain
+  record type (dataclass, struct, NamedTuple) and stop calling it a class design.
+- **Mostly delegates onward** — *Refactoring* 2e Ch. 3, **Middle Man**.
+- **Not earning its indirection** — *Refactoring* 2e Ch. 3, **Lazy Element**
+  (this smell is called *Lazy Class* in the 1st edition; cite the edition).
+
+*Not when:* the type carries persistent mutable state across several methods;
+you need many independent instances; it implements a Protocol/ABC/interface at
+a real boundary (see §3 over-abstraction and §19); the language or framework
+requires a class (an ORM model, a Pydantic model, a Django view, a test case);
+or a plain record type is the right answer and it already is one.
+
+**Authority:** `external` in every language here. No Python, Go or Rust
+standard states when something should not be a class — the grounding is the
+books above, so this is a **proposal to simplify, not a defect**. Report it that
+way, and never as part of a change the user did not ask for.
+
 ### Over-abstraction (yes, this is also a smell)
 - Single-use abstractions **inside the domain** — a class with one subclass, a
   protocol with one implementor, where both sides are your own code and no
@@ -838,3 +880,113 @@ it under §3 over-abstraction, not here.
   an interface with one implementor and no boundary under it.
 - **Framework-imposed shapes** the project cannot change (Django's app layout,
   an ORM's declarative base).
+
+---
+
+## 20. File & Module Organisation (universal)
+
+**Standards:** PEP 8 "Package and Module Names"; Google Python Style Guide
+3.16.2–3.16.3; Effective Go "Package names"; Go Code Review Comments "Package
+Names"; Rust RFC 430 / API Guidelines C-CASE. Books: *Refactoring* 2e Ch. 3
+(Divergent Change, Shotgun Surgery); *A Philosophy of Software Design* Ch. 5
+and Ch. 9; *Domain-Driven Design* Ch. 5 "MODULES".
+
+§3 works inside a function. §19 works between modules. **This one works at the
+file**: does its name tell the truth, does it hold one thing, and is it named
+the way the rest of the tree is named.
+
+**Naming rules here are normative; cohesion rules are not.** PEP 8, Effective Go
+and RFC 430 say what a module may be *called*, and a violation of those is a
+defect where the language applies. Nothing standardises what a file may
+*contain* — those findings cite books, are `authority: external`, and are
+proposals. Keep the two apart when reporting.
+
+### Names that don't match contents
+
+**A module named for a mechanism where a domain term exists.** `handler.py`,
+`processor.py`, `manager.py` sitting next to a `CONTEXT.md` that defines
+`Order` and `Invoice`. Module names are part of the ubiquitous language
+(*DDD* Ch. 5).
+*Not when:* the project has no domain glossary, or the module genuinely is
+infrastructure with no domain meaning.
+
+**A file whose name describes less than half of what is in it.** `user.py`
+containing `User`, the auth flow and the email templates. Report the mismatch,
+not the size.
+*Not when:* the extra contents are cohesive with the name — Google Python
+3.16.2 is explicit that related classes and top-level functions belong together
+in a module, and that there is **no** one-class-per-file rule in Python. Do not
+invent one.
+
+**Dumping grounds.** `util`, `utils`, `helpers`, `common`, `misc`, `shared`,
+`types`, `core` holding unrelated things. Go Code Review Comments names exactly
+this list under "Package Names" — the only normative statement of it in any
+language, so cite it for Go and treat it as a proposal elsewhere.
+*Not when:* the module is small, cohesive and the name is accurate for what it
+holds (a `types` module that holds only shared type definitions is honest).
+
+### Cohesion at the file level
+
+**Divergent change.** One file that gets edited for several unrelated reasons —
+a schema change, a transport change and a formatting change all land in the
+same module. Check the file's history where git is available; it is the
+cheapest evidence available for this check:
+
+```bash
+# files changed by the most distinct kinds of work
+git log --format='%s' --name-only -- <path> | sort -u | head -40
+```
+*Not when:* the file is a deliberate aggregation point — a package `__init__`,
+a registry, a config module.
+
+**Shotgun surgery.** The inverse: one conceptual change forces edits across many
+files. Report the *concept* that is spread, not each file.
+*Not when:* the change is genuinely cross-cutting (a version bump, a rename).
+
+**Temporal decomposition.** Files split by *when* the work runs rather than by
+what each one knows — `step1_load.py`, `step2_clean.py`, `step3_write.py`, or a
+package whose modules mirror the pipeline stages and all share the same data
+shape. *A Philosophy of Software Design* Ch. 5 names this as a leading cause of
+information leakage: the same knowledge ends up spread across every stage.
+*Not when:* the stages genuinely own different knowledge, which is the case for
+a real pipeline where each stage has its own rules and its own failure modes.
+
+### Convention consistency across the tree
+
+**Mixed file-naming conventions.** `user_service.py` beside `OrderService.py`
+beside `order-service.py`. Cite the language's own rule — PEP 8 "Package and
+Module Names", Google Python 3.16.3 (no dashes), Effective Go "Package names"
+(lower case, single word, no underscores or mixedCaps), RFC 430 (`snake_case`
+for crates and modules). Where the language has a rule this is a defect, not a
+proposal.
+
+**Package name stutter.** `bufio.BufReader` where `bufio.Reader` reads better —
+Effective Go treats the package name as part of every identifier it exports.
+Go-specific; do not port the rule to languages that import differently.
+
+**Directory depth that carries no information.** A folder holding exactly one
+file of the same name, or a layer with a single module. Overlaps §19 — report
+it there if the concern is the layer, here if the concern is the path.
+
+### Reporting
+
+Give the file, what the name claims, and what it actually holds. One finding per
+file, not one per stray symbol.
+
+**Severity:** `major` for a naming-convention violation where the language has a
+normative rule, and for a dumping-ground module several unrelated consumers
+import. `minor` for a single mismatched name. Cohesion findings are `external`
+proposals — rate them `minor` unless the project's own guide declares a
+structure rule, in which case they are `project` and a defect.
+
+### What NOT to report
+
+- **File length.** No standard in the catalogue sets one. A long file is
+  evidence for a cohesion finding, never a finding by itself.
+- **One class per file.** Google Python 3.16.2 explicitly declines to require
+  it. Only report it where the language enforces it or the project declares it.
+- **A folder layout that differs from your preference** — framework-imposed
+  structures (Django apps, Next.js routing, Cargo workspace layout) are not
+  findings.
+- **Module names in a language whose convention the project follows
+  consistently.** Consistency with the tree beats consistency with your habit.

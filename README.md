@@ -1,6 +1,6 @@
 # audit
 
-Deep code quality audit tool for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Combines a mechanical AST linter with LLM-powered analysis across 17 check dimensions, every finding bound to an authoritative standard.
+Deep code quality audit tool for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Combines a mechanical AST linter with LLM-powered analysis across 18 check dimensions, every finding bound to an authoritative standard.
 
 This isn't a linter pass. It's a senior engineer reviewing your codebase with fresh eyes — hunting magic values, deep nesting, missing early returns, copy-paste code, god functions, dead code, security holes, and every other pattern that makes code harder to read, change, and trust.
 
@@ -106,6 +106,7 @@ The linter catches things grep can't reliably find via AST analysis: nesting dep
 | **Naming** | Inconsistent conventions (mixed `snake_case`/`camelCase`), misleading names (`handle_error` that just logs), `utils.py` grab-bags, variables named after implementation instead of meaning. |
 | **Error handling** | Bare `except:`/`catch` with `pass`, swallowed errors, missing error context (`raise ValueError("invalid")` — invalid what?), wrong granularity, `assert` for runtime validation. |
 | **Security** | SQL/command/HTML injection, hardcoded secrets, path traversal, SSRF, missing auth checks, IDOR, weak crypto, `random` for security. Every finding cites OWASP Top 10 + CWE number. |
+| **File & module organisation** | Works at the file rather than between modules: names that don't match contents, modules named for mechanisms where a domain term exists, dumping grounds (`util`/`common`/`misc`), one file changed for several unrelated reasons, files split by pipeline stage rather than by what each knows, naming-convention drift across the tree. Naming cites PEP 8 / Effective Go / RFC 430 and is a defect; cohesion cites the books and is a proposal. File length is never a finding. |
 | **Architecture & coupling** | Where the seams are, between modules rather than inside one: framework/vendor types reaching into domain code, domain types doing I/O, handlers that aren't thin, one model serving as both stored record and API shape, collaborators constructed instead of injected, scattered construction, config read at the use site. Reported as proposals unless the project declares the rule itself. |
 
 ### Offensive tooling (when detected)
@@ -140,6 +141,15 @@ Every finding is bound to an authoritative standard where one exists. The full c
 - **[A Philosophy of Software Design](https://www.amazon.com/Philosophy-Software-Design-John-Ousterhout/dp/1732102201)** (Ousterhout) — deep vs shallow modules, pass-through methods, information leakage
 - **[Domain-Driven Design](https://www.domainlanguage.com/ddd/reference/)** — tactical patterns: layering, application services, repositories, keeping persistence and wire shapes distinct
 - **[Cognitive Complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)** (SonarSource) — better nesting metric than cyclomatic complexity
+
+### Reference books
+
+Not normative standards — references. A book citation is a proposal to adopt a convention, never a defect on its own. What it buys is a finding you can look up and argue with.
+
+- **[Refactoring, 2nd ed.](https://martinfowler.com/books/refactoring.html)** (Fowler) — Ch. 3 "Bad Smells in Code": Large Class, Data Class, Lazy Element, Speculative Generality, Middle Man, Divergent Change, Shotgun Surgery. Cite the edition; the smell names changed between them
+- **[A Philosophy of Software Design](https://web.stanford.edu/~ouster/cgi-bin/aposd.php)** (Ousterhout) — Ch. 4 "Modules Should Be Deep" and its name for the over-classing habit, *classitis*; Ch. 5 information leakage and temporal decomposition; Ch. 9 "Better Together or Better Apart?"
+- **[Code Complete, 2nd ed.](https://www.microsoftpressstore.com/store/code-complete-9780735619678)** (McConnell) — Ch. 6 §6.4 "Reasons to Create a Class" and "Classes to Avoid". An enumerated list makes it usable as a test
+- **[Domain-Driven Design](https://www.domainlanguage.com/ddd/)** (Evans) — Ch. 5 "MODULES (A.K.A. PACKAGES)": module names belong to the ubiquitous language
 
 ### Signal sources
 

@@ -14,10 +14,15 @@ possible.
 
 ### PEP 8 — Style Guide
 **URL:** https://peps.python.org/pep-0008/
-**Scope:** naming, magic-values, nesting-and-flow
+**Scope:** naming, magic-values, nesting-and-flow, file-module-organisation
 **When:** Python files present
 
 The baseline style guide. Most projects layer conventions on top.
+
+**"Package and Module Names"** (anchor `#package-and-module-names`) is the
+normative rule for Python file and package naming: modules short and
+all-lowercase, underscores where they aid readability; packages short and
+all-lowercase, underscores discouraged. Cite it by that section name.
 
 ### PEP 257 — Docstring Conventions
 **URL:** https://peps.python.org/pep-0257/
@@ -65,7 +70,7 @@ flow-breaking more heavily.
 
 ### Effective Go
 **URL:** https://go.dev/doc/effective_go
-**Scope:** naming, error-handling, abstraction, nesting-and-flow
+**Scope:** naming, error-handling, abstraction, nesting-and-flow, file-module-organisation
 **When:** Go files present
 
 The canonical Go style reference. Key patterns:
@@ -76,10 +81,15 @@ The canonical Go style reference. Key patterns:
 
 ### Go Code Review Comments
 **URL:** https://go.dev/wiki/CodeReviewComments
-**Scope:** naming, documentation, error-handling, type-safety
+**Scope:** naming, documentation, error-handling, type-safety, file-module-organisation
 **When:** Go files present
 
 Community-maintained list of common review comments. Supplements Effective Go.
+
+Its **"Package Names"** section is the strongest normative citation available
+for dumping-ground modules in any language: it names `util`, `common`, `misc`,
+`api`, `types` and `interfaces` as bad package names. Go-only as a rule, but it
+is the one place the pattern is written down rather than merely disliked.
 
 ### Uber Go Style Guide
 **URL:** https://github.com/uber-go/guide/blob/master/style.md
@@ -105,8 +115,12 @@ Production-hardened patterns:
 
 ### Rust API Guidelines
 **URL:** https://rust-lang.github.io/api-guidelines/
-**Scope:** naming, documentation, type-safety, abstraction
+**Scope:** naming, documentation, type-safety, abstraction, file-module-organisation
 **When:** Rust files present
+
+**C-CASE** defers to **RFC 430** for casing, which is the citable rule for
+crate and module names (`snake_case`; prefer a single word for a crate).
+RFC 430: https://rust-lang.github.io/rfcs/0430-finalizing-naming-conventions.html
 
 How to design Rust library APIs:
 - Naming conventions (C-CASE, C-CONV)
@@ -260,6 +274,87 @@ Core vocabulary:
 
 - Entities, Value Objects, Aggregates, Domain Events
 - Ubiquitous Language — names in code should match the domain
+
+---
+
+## Reference Books
+
+These are **references, not normative standards.** A book citation is
+`authority: external` — a proposal to adopt a convention, never a defect on its
+own. What it buys is that the finding becomes checkable: a reader can look the
+concept up and disagree with it on the record, which "this should be a class"
+alone does not allow.
+
+**Cite the edition.** Fowler's smell names changed between editions, and a
+citation against the wrong one is a wrong citation.
+
+### Refactoring — Martin Fowler (2nd ed., 2019)
+**Scope:** abstraction, architecture-coupling, file-module-organisation, naming
+**When:** always
+
+Chapter 3, "Bad Smells in Code", is the catalogue. The smells that bear on
+class design and module boundaries:
+
+| Smell | Points at |
+|---|---|
+| **Large Class** | a class doing too much; too many fields or responsibilities |
+| **Data Class** | fields and accessors with no behaviour of its own |
+| **Lazy Element** | a class or function not earning the indirection it costs |
+| **Speculative Generality** | structure built for a case that never arrived |
+| **Middle Man** | a class that mostly delegates onward |
+| **Divergent Change** | one module changed for several unrelated reasons |
+| **Shotgun Surgery** | one change forcing edits across many modules |
+
+⚠️ **"Lazy Class" is 1st-edition only** — it became **Lazy Element** in the 2nd.
+Cite one or the other with the edition attached.
+
+Divergent Change and Shotgun Surgery are the pair to reach for on module
+cohesion: the first says a module holds too many reasons to change, the second
+says a reason to change is spread across too many modules.
+
+### A Philosophy of Software Design — John Ousterhout (2nd ed., 2021)
+**Scope:** architecture-coupling, abstraction, file-module-organisation
+**When:** always
+
+- **Ch. 4, "Modules Should Be Deep"** — depth over count, and the chapter names
+  the over-classing tendency directly: **"classitis"**, the habit of
+  proliferating small shallow classes on the assumption that smaller is better.
+  This is the citation for "this did not need to be a class".
+- **Ch. 5, "Information Hiding (and Leakage)"** — information leakage and
+  *temporal decomposition*: modules split by execution order rather than by
+  what each one knows. That is the diagnosis for a lot of bad file layout.
+- **Ch. 9, "Better Together or Better Apart?"** — the direct treatment of
+  whether two pieces belong in one unit.
+
+Chapters 4, 5 and 9 keep their numbers across both editions. **Cite chapter and
+concept, not a decimal subsection** — the subsection numbers are not verified.
+
+### Code Complete — Steve McConnell (2nd ed., 2004)
+**Scope:** abstraction, file-module-organisation
+**When:** always
+
+- **Ch. 6, "Working Classes", §6.4 "Reasons to Create a Class"** (p. 152) — an
+  enumerated list of valid reasons, which makes it usable as a test: if a
+  proposed class matches none of them, that is the finding. §6.4 is followed by
+  **"Classes to Avoid"**, which covers god classes, classes that exist only to
+  hold data, and classes named after a verb — behaviour with no state, which
+  belongs in functions.
+- **§6.6, "Beyond Classes: Packages"** (p. 156) — organisation above the class.
+
+Chapter, section number and page are publisher-confirmed; treat the enumerated
+contents as one notch less certain and verify against the book before quoting a
+specific reason by number.
+
+### Domain-Driven Design — Eric Evans (2003)
+**Scope:** architecture-coupling, naming, file-module-organisation
+**When:** the project has a domain model or a CONTEXT.md
+
+**Ch. 5, "MODULES (A.K.A. PACKAGES)"** (p. 109), with "Agile MODULES" (p. 111)
+and "The Pitfalls of Infrastructure-Driven Packaging" (p. 112). Modules are a
+communication mechanism: names belong to the ubiquitous language, and packaging
+driven by technical layering rather than the domain is called out explicitly.
+This is the citation for a module named after a mechanism where a domain term
+exists.
 
 ---
 
