@@ -1,7 +1,6 @@
 ---
 name: audit
 version: 2.0.0
-model: claude-opus-4-6-20250527
 description: |
   Deep code quality audit of the current directory. Hunts magic values, deep nesting,
   missing early returns, absent docstrings, repeated code, missed abstractions, long
@@ -46,6 +45,10 @@ specific rule (e.g. "violates NASA Power of 10 Rule 4", "CWE-78: OS Command Inje
 Before any analysis, gather context:
 
 1. **Read the project's style guide** — check for `CLAUDE.md`, `CODE_STYLE.md`, `.editorconfig`, `pyproject.toml` (ruff/black config), `eslint.config.*`, `tsconfig.json`, `.clang-format`, or similar. These override generic rules.
+
+   **Read them twice, for two different purposes.** Once to calibrate yourself — a project convention beats generic advice, and suppressing your own false positives is the obvious use. Then again as *claims to be tested*, because a rule the project declares and never runs is a finding in its own right, and the calibration pass is exactly the reading that hides it. A lint config you treat only as a constraint on yourself is a config you will never notice is failing. Build two lists:
+   - **Rules to respect** — feeds every other dimension.
+   - **Rules to verify** — feeds dimension 18 (**enforcement**). Every entry is a declared check: a ruff/eslint `select` list, a pre-commit hook, a CI step, a documented convention with imperative force ("always", "never", "must").
 2. **Detect languages in use** — `find . -type f \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.go' -o -name '*.rs' -o -name '*.sh' -o -name '*.c' -o -name '*.cpp' -o -name '*.h' \) | head -200` to get the lay of the land.
 3. **Understand the structure** — `find . -type d -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/venv/*' -not -path '*/.venv/*' | head -100`
 4. **Run the mechanical linter** — execute `uv run --project ~/dev/audit audit-lint .` to get AST-level findings (nesting depth, function length, magic numbers, missing docstrings, duplicate blocks). This gives you a baseline of mechanical issues before the deep analysis.
@@ -75,6 +78,19 @@ The dimensions are:
 10. **c-safety** — Memory safety (buffer overflows, use-after-free, double-free, null derefs), integer overflow, undefined behaviour. Cite CERT C MEM/INT/ARR rules, MISRA rules, NASA Power of 10.
 11. **c-quality** — Function length (NASA Rule 4: 60 lines max), nesting depth, assertion density (NASA Rule 5), preprocessor discipline (NASA Rule 8), pointer depth (NASA Rule 9). Cite NASA Power of 10 rules.
 
+> **The NASA Power of 10 rules are C rules and stay in this dimension.** Rule 4's
+> 60-line limit, Rule 5's assertion density and Rule 9's pointer depth do not
+> apply to a Python or TypeScript codebase and must not be cited against one.
+> This leaked once and cost real work: a Python-only project was issued a
+> "two functions exceed the NASA Rule 4 / 60-line bar" ticket that survived
+> three months before measurement showed the codebase held 97 such functions
+> and had never adopted the rule. Python's own length signal is
+> `MAX_FUNCTION_LINES = 50` in `src/audit/lint.py` (measured on body lines),
+> reported under dimension 3 **abstraction** as a god-function smell — a
+> *symptom to investigate*, not a threshold to enforce. If a project wants a
+> length rule it must write one into its own style guide; absent that, report
+> length only where it is evidence for a different finding.
+
 ### Go dimensions (if Go files present)
 12. **go-patterns** — Error handling (check returns, wrap with context), goroutine leaks, interface compliance, naming conventions. Cite Effective Go, Uber Go Style Guide.
 
@@ -85,6 +101,7 @@ The dimensions are:
 14. **naming** — Inconsistent naming conventions, misleading names, abbreviations without context
 15. **error-handling** — Bare except/catch, swallowed errors, missing error context, panic in library code
 16. **security** — Hardcoded secrets, SQL injection, command injection, path traversal, XSS, SSRF. Every finding MUST cite the OWASP Top 10 category AND the CWE number. Reference OWASP ASVS verification level where applicable.
+18. **enforcement** — Rules the project *declares* and does not *enforce*. Every other dimension finds code that breaks a rule; this one finds rules that break nothing. See [CHECKS.md](CHECKS.md) §18. **Run the declared checks — do not read the config and assume it passes.**
 
 ### Offensive tooling dimension (if offensive tooling detected in Phase 0)
 17. **opsec** — String artefacts, API usage patterns, memory hygiene, network OPSEC, build/release hygiene. Cite MITRE ATT&CK technique IDs where relevant. Cross-reference Elastic/Sigma/YARA detection rules if a pattern would trigger known detections.
@@ -95,8 +112,9 @@ Each agent MUST:
 - Read any project-specific style guide found in Phase 0
 - Read the `lint_assist.py` output for mechanical findings in their dimension
 - Search the codebase methodically — don't just spot-check
-- Return structured findings: `{file, line, check, severity, description, standard, suggestion}`
+- Return structured findings: `{file, line, check, severity, description, standard, suggestion, authority}`
   - `standard` is the specific rule cited (e.g. "NASA Power of 10 Rule 4", "CWE-78", "CERT C MEM33-C", "OWASP A03:2021")
+  - `authority` is either **`project`** (the rule is written in this project's own `CLAUDE.md` / style guide — quote the line) or **`external`** (it comes only from STANDARDS.md). Security and memory-safety findings are always actionable regardless. For everything else the distinction is load-bearing: an `external`-only finding is a **proposal to adopt a convention**, not a defect, and must be reported as one. Filing it as a defect is how a codebase acquires rules nobody agreed to and then acquires tickets to enforce them.
 
 ## Phase 2: Cross-verification
 
@@ -224,26 +242,28 @@ better next time:
 
 ### How to save
 
-Use the standard memory format:
+🚨 **`/prep-compact` Phase 4 is the canonical memory-writing spec — follow it, do not
+restate it here.** It owns the directory convention (the cwd with `/` → `-`), the
+nested-`metadata:` frontmatter dialect, and the duplicate check. Three commands used
+to write memories with three different specs; per CODE_STYLE rule 46, same language
+and same process means **extract**, not three copies that agree today and drift
+tomorrow.
 
-```markdown
----
-name: audit-<project>-<topic>
-description: <one-line summary>
-metadata:
-  type: project
----
+Audit-specific parts, which are the only things that belong here:
 
-<pattern observed>
+- **Name them `audit-<project>-<topic>`** so a later audit can find its predecessors.
+- **`metadata.type` is `project`** for codebase patterns, `feedback` for
+  audit-method learnings.
+- **2–5 memories maximum per audit.** An audit generates hundreds of findings; the
+  report holds those. Only systemic, recurring themes are memories.
+- Body carries `**Why:**` and `**How to apply:**` lines.
 
-**Why:** <what makes this worth remembering>
-**How to apply:** <when/how this should inform future work>
-```
-
-Save 2-5 memories maximum per audit — only the systemic, recurring themes. Individual
-findings are in the report; they don't need to be memorised.
-
-Update `MEMORY.md` with pointers to the new memory files.
+⚠️ **Before adding a `MEMORY.md` pointer, measure it.** `MEMORY.md` has a hard cap
+that **truncates from the bottom, silently**, and an audit arrives with 2–5 pointers
+at once — enough to push a near-full index over and destroy its newest entries with
+no error anywhere. Run the project's `.claude/hooks/doctrine-measure.sh` if it has
+one, or `wc -c` the index. If it is at cap, the pointers do not go in until
+something comes out; the memory FILES are still written either way.
 
 ## What NOT to report
 

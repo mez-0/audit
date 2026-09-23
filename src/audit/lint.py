@@ -53,6 +53,11 @@ SKIP_PATTERNS = {
     "vendored",
 }
 
+# A candidate threshold, not a bar. Over this, a function is worth *reading*
+# for the abstraction smells in CHECKS.md §3 — it is not a finding on its own.
+# Deliberately not 60: that figure is NASA Power of 10 Rule 4, a C rule scoped
+# to CHECKS.md §14, and citing it against a managed language invents an
+# authority the audited project never adopted.
 MAX_FUNCTION_LINES = 50
 MAX_NESTING_DEPTH = 4
 MAX_PARAMS = 5

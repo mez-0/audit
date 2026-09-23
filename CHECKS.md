@@ -107,6 +107,19 @@ def handle(request):
 - Functions with more than 5 parameters (should be a config/options dataclass)
 - Functions that mix I/O and logic (read from DB, transform, write back — should be split)
 
+> **The 50 is conjunctive and this matters.** Length alone is not a finding in a
+> managed language — the trigger is *length **and** more than one conceptual
+> thing*. `MAX_FUNCTION_LINES = 50` in `src/audit/lint.py` gives you candidates
+> to read, not a list to report. Two corollaries, both paid for:
+> - **Do not cite NASA Power of 10 Rule 4 here.** Its 60-line limit is a C rule
+>   and lives in §14. Citing a C standard against Python manufactures an
+>   authority the project never accepted.
+> - **Exclude nested definitions from the enclosing function's count.** A tool
+>   factory whose body is inner tool functions with long docstrings is not a god
+>   function; measured on one real codebase, fifteen such factories fell from
+>   >60 lines to single digits once inner defs were excluded, and the docstrings
+>   were mandated by that project's own conventions.
+
 ### Missing class opportunities
 - Groups of functions that all take the same first 2-3 parameters
 - Dictionaries used as structs (accessing string keys for structured data)
@@ -676,3 +689,89 @@ Win32 API patterns, syscall stubs, shellcode, or user confirmation.
 - AMSI/ETW unhooking patterns that are themselves detected
 
 **Severity:** critical (plaintext C2 addresses, debug symbols in release, secrets in memory without zeroing), major (fixed callback intervals, direct API imports for sensitive calls, missing jitter), minor (user-agent mismatch, timestamp correlation)
+
+---
+
+## 18. Enforcement (universal)
+
+**Standards:** none external. The authority is the project's own configuration
+and style guide — this dimension audits the project against its own claims.
+
+Every other dimension looks for code that breaks a rule. This one looks for
+**rules that break nothing**: conventions the project declares and never
+enforces. Those are more dangerous than an unwritten rule, because a declared
+rule reads as coverage — someone checks the config, sees the rule listed, and
+concludes the class of defect is handled.
+
+**Run the checks. Do not read the config and assume it passes.** This is the
+whole discipline of the dimension, and the failure it guards against is
+specific: a lint rule that is configured *and failing* looks identical to a
+lint rule that is working, if you only ever read the config file.
+
+### What to look for
+
+**Declared-but-failing.** Every rule in a `select` / `extends` / `rules` block —
+run the tool and count violations. A configured rule with a non-zero count is
+enforcing nothing.
+
+```bash
+ruff check . --statistics                  # every selected rule, with counts
+uv run pre-commit run --all-files          # do the gating hooks actually pass?
+npx eslint . --format=json | jq '[.[].messages[]] | length'
+mypy . 2>&1 | tail -1 ; tsc --noEmit
+```
+
+**Declared-but-not-gating.** A hook or step that cannot fail:
+- pre-commit hooks pinned to `stages: [manual]` — never run on commit
+- a tool that always exits 0 (`radon`, most formatters in check-less mode) used
+  where a failing gate was intended (the enforcing equivalents: `xenon` for
+  complexity, `--check` / `--diff` for formatters)
+- a lint config present with no CI step and no pre-commit hook invoking it
+- `continue-on-error: true` on the CI step that runs it
+- a test file whose tests are all skipped, xfailed, or renamed out of collection
+
+**Written-but-unmechanised.** Imperative rules in `CLAUDE.md` / `CODE_STYLE.md`
+("always", "never", "must") with no corresponding check anywhere. For each,
+state whether a linter rule exists that would enforce it, and name it:
+- "imports at the top of the file, always" → ruff `PLC0415`
+- "no `any`, no `@ts-ignore`" → `@typescript-eslint/no-explicit-any`, `ban-ts-comment`
+- "no backwards-compatibility shims" → no rule exists; needs a test
+- closed vocabularies / "no magic strings" → **no lint rule exists for this in
+  any language.** The enforceable form is a completeness test per enum:
+  assert no production module compares against a raw member value.
+
+Where no rule exists, say so plainly rather than proposing an approximate one —
+a proxy metric enabled in place of the real rule (cyclomatic complexity standing
+in for function length, say) disagrees with the stated rule in both directions
+and produces argument instead of enforcement.
+
+**Enforced-but-undeclared.** The inverse, and worth one line: a check gating CI
+that appears in no style guide. Contributors cannot follow a rule they cannot
+read.
+
+### Reporting
+
+Report one finding per declared-and-unenforced rule, not one per violation —
+the violations belong to the dimension that owns the rule. State: the rule, where
+it is declared, how it is (not) enforced, and the current violation count.
+
+A tidy summary table earns its place here:
+
+| Declared | Where | Enforced? | Violations |
+|---|---|---|---|
+| `select = ["F401"]` | `pyproject.toml` | configured, never gated | 29 |
+| complexity gate | `.pre-commit-config.yaml` | `stages: [manual]`, exits 0 | unknown |
+| "imports at the top, always" | `CLAUDE.md` | nothing | 133 (`PLC0415`) |
+
+**Severity:** `major` for a rule that is configured and failing (it reads as
+coverage and delivers none). `major` for a check that cannot fail by
+construction. `minor` for a written convention with no mechanism, unless the
+violation count is large enough that the convention is already dead — then
+`major`.
+
+**One caution.** Enabling a rule against a large pre-existing violation count
+does not fix anything; it produces a red build, and a rule that lands red is a
+rule someone disables. Where the count is large, recommend a **ratchet** (fail
+on any increase against a recorded baseline) rather than a threshold. That is
+enforceable on day one, and it stops the bleed, which is what the project
+actually wanted from the rule it never turned on.
